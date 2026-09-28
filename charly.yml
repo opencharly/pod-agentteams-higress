@@ -1,7 +1,5 @@
-version: 2026.232.0520
 agentteams-higress:
     candy:
-        version: 2026.223.1500
         description: |-
             The Higress AI gateway for AgentTeams — the apiserver, controller,
             pilot, envoy gateway, and console binaries extracted from the
