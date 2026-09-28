@@ -1,5 +1,7 @@
+version: 2026.232.0520
 agentteams-higress:
     candy:
+        version: 2026.223.1500
         description: |-
             The Higress AI gateway for AgentTeams — the apiserver, controller,
             pilot, envoy gateway, and console binaries extracted from the
@@ -170,242 +172,242 @@ agentteams-higress:
               write: /etc/logrotate.d/higress-logrotate
               mode: "0644"
               content: |
-                /var/log/proxy/access.log
-                {
-                su 1000 1000
-                rotate 5
-                create 644 1000 1000
-                nocompress
-                notifempty
-                minsize 100M
-                postrotate
-                    ps aux|grep "envoy -c"|grep -v "grep"|awk  '{print $2}'|xargs -i kill -SIGUSR1 {}
-                endscript
-                }
+                  /var/log/proxy/access.log
+                  {
+                  su 1000 1000
+                  rotate 5
+                  create 644 1000 1000
+                  nocompress
+                  notifempty
+                  minsize 100M
+                  postrotate
+                      ps aux|grep "envoy -c"|grep -v "grep"|awk  '{print $2}'|xargs -i kill -SIGUSR1 {}
+                  endscript
+                  }
             - run: write the supercronic cron file for the gateway log rotation
               write: /var/lib/istio/cron.txt
               mode: "0644"
               content: |
-                * * * * * /usr/sbin/logrotate /etc/logrotate.d/higress-logrotate
+                  * * * * * /usr/sbin/logrotate /etc/logrotate.d/higress-logrotate
             - run: write the gateway pod labels the istio-agent folds into envoy node-metadata LABELS (the pilot matches the proxy to the Gateway resource by the higress=higress-system-higress-gateway selector — without this file no gateway listeners are generated and the 8080 port never serves; the upstream image bakes /etc/istio/pod/labels at build time, ours is charly-owned)
               write: /etc/istio/pod/labels
               mode: "0644"
               content: |
-                app="higress-gateway"
-                higress="higress-system-higress-gateway"
+                  app="higress-gateway"
+                  higress="higress-system-higress-gateway"
             - run: write the rootless higress apiserver start script
               write: /opt/agentteams-higress/start-apiserver.sh
               mode: "0755"
               content: |
-                #!/bin/bash
-                # start-apiserver.sh — charly-owned rootless Higress apiserver
-                # launcher. Seeds the ~/.agentteams/higress volume from the extracted
-                # defaultConfig, renders the mesh config files into the pre-created
-                # /etc/istio/config, then execs apiserver. No sudo: the volume dir is
-                # uid-1000-owned and /etc/istio/config is pre-created uid-1000-writable.
-                set -e
+                  #!/bin/bash
+                  # start-apiserver.sh — charly-owned rootless Higress apiserver
+                  # launcher. Seeds the ~/.agentteams/higress volume from the extracted
+                  # defaultConfig, renders the mesh config files into the pre-created
+                  # /etc/istio/config, then execs apiserver. No sudo: the volume dir is
+                  # uid-1000-owned and /etc/istio/config is pre-created uid-1000-writable.
+                  set -e
 
-                mkdir -p "${HOME}/.agentteams/higress"
-                cp -rn /opt/data/defaultConfig/* "${HOME}/.agentteams/higress"
+                  mkdir -p "${HOME}/.agentteams/higress"
+                  cp -rn /opt/data/defaultConfig/* "${HOME}/.agentteams/higress"
 
-                MESH_CONFIG_DIR='/etc/istio/config'
-                HIGRESS_CONFIG_FILE="${HOME}/.agentteams/higress/configmaps/higress-config.yaml"
-                MESH_CONFIG_FILES=$(yq '.data | keys | .[]' "$HIGRESS_CONFIG_FILE")
-                if [ -z "$MESH_CONFIG_FILES" ]; then
-                    echo "  Missing required files in higress-config ConfigMap."
-                    exit 1
-                fi
-                IFS=$'\n'
-                for MESH_CONFIG_FILE in $MESH_CONFIG_FILES; do
-                    if [ -z "$MESH_CONFIG_FILE" ] || [ "$MESH_CONFIG_FILE" == "higress" ]; then
-                        continue
-                    fi
-                    yq ".data.$MESH_CONFIG_FILE" "$HIGRESS_CONFIG_FILE" > "$MESH_CONFIG_DIR/$MESH_CONFIG_FILE"
-                done
+                  MESH_CONFIG_DIR='/etc/istio/config'
+                  HIGRESS_CONFIG_FILE="${HOME}/.agentteams/higress/configmaps/higress-config.yaml"
+                  MESH_CONFIG_FILES=$(yq '.data | keys | .[]' "$HIGRESS_CONFIG_FILE")
+                  if [ -z "$MESH_CONFIG_FILES" ]; then
+                      echo "  Missing required files in higress-config ConfigMap."
+                      exit 1
+                  fi
+                  IFS=$'\n'
+                  for MESH_CONFIG_FILE in $MESH_CONFIG_FILES; do
+                      if [ -z "$MESH_CONFIG_FILE" ] || [ "$MESH_CONFIG_FILE" == "higress" ]; then
+                          continue
+                      fi
+                      yq ".data.$MESH_CONFIG_FILE" "$HIGRESS_CONFIG_FILE" > "$MESH_CONFIG_DIR/$MESH_CONFIG_FILE"
+                  done
 
-                exec apiserver --bind-address 127.0.0.1 --secure-port 18443 --storage file --file-root-dir "${HOME}/.agentteams/higress" --cert-dir /tmp
+                  exec apiserver --bind-address 127.0.0.1 --secure-port 18443 --storage file --file-root-dir "${HOME}/.agentteams/higress" --cert-dir /tmp
             - run: write the rootless higress controller start script
               write: /opt/agentteams-higress/start-controller.sh
               mode: "0755"
               content: |
-                #!/bin/bash
-                # start-controller.sh — charly-owned rootless Higress controller
-                # launcher. Waits for the apiserver, then execs the higress
-                # controller against the extracted kubeconfig.
-                set -e
+                  #!/bin/bash
+                  # start-controller.sh — charly-owned rootless Higress controller
+                  # launcher. Waits for the apiserver, then execs the higress
+                  # controller against the extracted kubeconfig.
+                  set -e
 
-                while ! nc -z 127.0.0.1 18443; do
-                    echo "Checking the readiness of Higress API Server..."
-                    sleep 1
-                done
+                  while ! nc -z 127.0.0.1 18443; do
+                      echo "Checking the readiness of Higress API Server..."
+                      sleep 1
+                  done
 
-                exec /usr/local/bin/higress \
-                    serve \
-                    --kubeconfig=/app/kubeconfig \
-                    --gatewaySelectorKey=higress \
-                    --gatewaySelectorValue=higress-system-higress-gateway \
-                    --gatewayHttpPort=${GATEWAY_HTTP_PORT:-8080} \
-                    --gatewayHttpsPort=${GATEWAY_HTTPS_PORT:-8443} \
-                    --ingressClass=
+                  exec /usr/local/bin/higress \
+                      serve \
+                      --kubeconfig=/app/kubeconfig \
+                      --gatewaySelectorKey=higress \
+                      --gatewaySelectorValue=higress-system-higress-gateway \
+                      --gatewayHttpPort=${GATEWAY_HTTP_PORT:-8080} \
+                      --gatewayHttpsPort=${GATEWAY_HTTPS_PORT:-8443} \
+                      --ingressClass=
             - run: write the rootless higress pilot start script
               write: /opt/agentteams-higress/start-pilot.sh
               mode: "0755"
               content: |
-                #!/bin/bash
-                # start-pilot.sh — charly-owned rootless Higress pilot launcher.
-                # Waits for the controller, generates the mTLS certs into the
-                # pre-created /etc/certs (uid-1000-writable, no sudo), then execs
-                # pilot-discovery.
-                set -e
+                  #!/bin/bash
+                  # start-pilot.sh — charly-owned rootless Higress pilot launcher.
+                  # Waits for the controller, generates the mTLS certs into the
+                  # pre-created /etc/certs (uid-1000-writable, no sudo), then execs
+                  # pilot-discovery.
+                  set -e
 
-                while ! nc -z 127.0.0.1 15051; do
-                    echo "Checking the readiness of Higress Controller..."
-                    sleep 1
-                done
+                  while ! nc -z 127.0.0.1 15051; do
+                      echo "Checking the readiness of Higress Controller..."
+                      sleep 1
+                  done
 
-                RSA_KEY_LENGTH=4096
-                cd /etc/certs
+                  RSA_KEY_LENGTH=4096
+                  cd /etc/certs
 
-                openssl req -newkey rsa:$RSA_KEY_LENGTH -nodes -keyout root-key.pem -x509 -days 36500 -out root-cert.pem >/dev/null 2>&1 <<EOF
-                CN
-                Shanghai
-                Shanghai
-                Higress
-                Gateway
-                Root CA
-                rootca@higress.io
+                  openssl req -newkey rsa:$RSA_KEY_LENGTH -nodes -keyout root-key.pem -x509 -days 36500 -out root-cert.pem >/dev/null 2>&1 <<EOF
+                  CN
+                  Shanghai
+                  Shanghai
+                  Higress
+                  Gateway
+                  Root CA
+                  rootca@higress.io
 
 
-                EOF
+                  EOF
 
-                cat <<EOF >ca.cfg
-                [req]
-                distinguished_name = req_distinguished_name
-                req_extensions = v3_req
-                prompt = no
+                  cat <<EOF >ca.cfg
+                  [req]
+                  distinguished_name = req_distinguished_name
+                  req_extensions = v3_req
+                  prompt = no
 
-                [req_distinguished_name]
-                C = CN
-                ST = Shanghai
-                L = Shanghai
-                O = Higress
-                CN = Higress CA
+                  [req_distinguished_name]
+                  C = CN
+                  ST = Shanghai
+                  L = Shanghai
+                  O = Higress
+                  CN = Higress CA
 
-                [v3_req]
-                keyUsage = keyCertSign
-                basicConstraints = CA:TRUE
-                subjectAltName = @alt_names
+                  [v3_req]
+                  keyUsage = keyCertSign
+                  basicConstraints = CA:TRUE
+                  subjectAltName = @alt_names
 
-                [alt_names]
-                DNS.1 = ca.higress.io
-                EOF
-                openssl genrsa -out ca-key.pem $RSA_KEY_LENGTH >/dev/null &&
-                    openssl req -new -key ca-key.pem -out ca-cert.csr -config ca.cfg -batch -sha256 >/dev/null 2>&1 &&
-                    openssl x509 -req -days 36500 -in ca-cert.csr -sha256 -CA root-cert.pem -CAkey root-key.pem -CAcreateserial -out ca-cert.pem -extensions v3_req -extfile ca.cfg >/dev/null 2>&1
-                cp ca-cert.pem cert-chain.pem >/dev/null
-                chmod a+r ca-key.pem
+                  [alt_names]
+                  DNS.1 = ca.higress.io
+                  EOF
+                  openssl genrsa -out ca-key.pem $RSA_KEY_LENGTH >/dev/null &&
+                      openssl req -new -key ca-key.pem -out ca-cert.csr -config ca.cfg -batch -sha256 >/dev/null 2>&1 &&
+                      openssl x509 -req -days 36500 -in ca-cert.csr -sha256 -CA root-cert.pem -CAkey root-key.pem -CAcreateserial -out ca-cert.pem -extensions v3_req -extfile ca.cfg >/dev/null 2>&1
+                  cp ca-cert.pem cert-chain.pem >/dev/null
+                  chmod a+r ca-key.pem
 
-                cat <<EOF >gateway.cfg
-                [req]
-                distinguished_name = req_distinguished_name
-                req_extensions = v3_req
-                prompt = no
+                  cat <<EOF >gateway.cfg
+                  [req]
+                  distinguished_name = req_distinguished_name
+                  req_extensions = v3_req
+                  prompt = no
 
-                [req_distinguished_name]
-                C = CN
-                ST = Shanghai
-                L = Shanghai
-                O = Higress
-                CN = Higress Gateway
+                  [req_distinguished_name]
+                  C = CN
+                  ST = Shanghai
+                  L = Shanghai
+                  O = Higress
+                  CN = Higress Gateway
 
-                [v3_req]
-                keyUsage = digitalSignature, keyEncipherment
-                subjectAltName = URI:spiffe://cluster.local/ns/higress-system/sa/higress-gateway
-                EOF
-                openssl genrsa -out gateway-key.pem $RSA_KEY_LENGTH > /dev/null \
-                  && openssl req -new -key gateway-key.pem -out gateway-cert.csr -config gateway.cfg -batch -sha256 > /dev/null 2>&1 \
-                  && openssl x509 -req -days 36500 -in gateway-cert.csr -sha256 -CA ca-cert.pem -CAkey ca-key.pem -CAcreateserial -out gateway-cert.pem -extensions v3_req -extfile gateway.cfg > /dev/null 2>&1
-                chmod a+r gateway-key.pem
+                  [v3_req]
+                  keyUsage = digitalSignature, keyEncipherment
+                  subjectAltName = URI:spiffe://cluster.local/ns/higress-system/sa/higress-gateway
+                  EOF
+                  openssl genrsa -out gateway-key.pem $RSA_KEY_LENGTH > /dev/null \
+                    && openssl req -new -key gateway-key.pem -out gateway-cert.csr -config gateway.cfg -batch -sha256 > /dev/null 2>&1 \
+                    && openssl x509 -req -days 36500 -in gateway-cert.csr -sha256 -CA ca-cert.pem -CAkey ca-key.pem -CAcreateserial -out gateway-cert.pem -extensions v3_req -extfile gateway.cfg > /dev/null 2>&1
+                  chmod a+r gateway-key.pem
 
-                cat ca-cert.pem >> gateway-cert.pem
-                mv gateway-cert.pem cert-chain.pem
-                mv gateway-key.pem key.pem
+                  cat ca-cert.pem >> gateway-cert.pem
+                  mv gateway-cert.pem cert-chain.pem
+                  mv gateway-key.pem key.pem
 
-                rm *.csr >/dev/null
-                rm *.cfg >/dev/null
+                  rm *.csr >/dev/null
+                  rm *.cfg >/dev/null
 
-                cd -
+                  cd -
 
-                exec /usr/local/bin/pilot-discovery \
-                    discovery \
-                    --httpAddr=:15080 \
-                    --monitoringAddr=:15014 \
-                    --log_output_level=default:info \
-                    --domain=cluster.local \
-                    --keepaliveMaxServerConnectionAge=30m \
-                    --caCertFile=/etc/certs/ca-cert.pem \
-                    --meshConfig=/etc/istio/config/mesh \
-                    --networksConfig=/etc/istio/config/meshNetworks
+                  exec /usr/local/bin/pilot-discovery \
+                      discovery \
+                      --httpAddr=:15080 \
+                      --monitoringAddr=:15014 \
+                      --log_output_level=default:info \
+                      --domain=cluster.local \
+                      --keepaliveMaxServerConnectionAge=30m \
+                      --caCertFile=/etc/certs/ca-cert.pem \
+                      --meshConfig=/etc/istio/config/mesh \
+                      --networksConfig=/etc/istio/config/meshNetworks
             - run: write the rootless higress gateway start script
               write: /opt/agentteams-higress/start-gateway.sh
               mode: "0755"
               content: |
-                #!/bin/bash
-                # start-gateway.sh — charly-owned rootless Higress gateway
-                # launcher. Waits for the pilot, points the mesh access log at
-                # the real log file (venue-agnostic: /dev/stdout is a pipe that
-                # does not exist on a machine venue, so envoy would reject the
-                # listener), starts the log-rotation cron, then execs the envoy
-                # proxy via pilot-agent. No sudo: the proxy dirs are
-                # pre-created uid-1000-writable.
-                set -e
+                  #!/bin/bash
+                  # start-gateway.sh — charly-owned rootless Higress gateway
+                  # launcher. Waits for the pilot, points the mesh access log at
+                  # the real log file (venue-agnostic: /dev/stdout is a pipe that
+                  # does not exist on a machine venue, so envoy would reject the
+                  # listener), starts the log-rotation cron, then execs the envoy
+                  # proxy via pilot-agent. No sudo: the proxy dirs are
+                  # pre-created uid-1000-writable.
+                  set -e
 
-                while ! nc -z 127.0.0.1 15010; do
-                    echo "Checking the readiness of Higress Pilot..."
-                    sleep 1
-                done
+                  while ! nc -z 127.0.0.1 15010; do
+                      echo "Checking the readiness of Higress Pilot..."
+                      sleep 1
+                  done
 
-                mkdir -p /etc/istio/proxy /var/lib/istio/data /var/log/proxy
-                touch /var/log/proxy/access.log
+                  mkdir -p /etc/istio/proxy /var/lib/istio/data /var/log/proxy
+                  touch /var/log/proxy/access.log
 
-                sed -i -E 's/^accessLogFile: .+$/accessLogFile: \/var\/log\/proxy\/access.log/' /etc/istio/config/mesh
+                  sed -i -E 's/^accessLogFile: .+$/accessLogFile: \/var\/log\/proxy\/access.log/' /etc/istio/config/mesh
 
-                nohup /usr/local/bin/supercronic /var/lib/istio/cron.txt &> /dev/null &
+                  nohup /usr/local/bin/supercronic /var/lib/istio/cron.txt &> /dev/null &
 
-                exec /usr/local/bin/pilot-agent proxy router \
-                    --concurrency=${GATEWAY_CONCURRENCY:-16} \
-                    --domain=higress-system.svc.cluster.local \
-                    --proxyLogLevel=${GATEWAY_LOG_LEVEL:-warning} \
-                    --proxyComponentLogLevel=${GATEWAY_COMPONENT_LOG_LEVEL:-misc:error} \
-                    --serviceCluster=higress-gateway
+                  exec /usr/local/bin/pilot-agent proxy router \
+                      --concurrency=${GATEWAY_CONCURRENCY:-16} \
+                      --domain=higress-system.svc.cluster.local \
+                      --proxyLogLevel=${GATEWAY_LOG_LEVEL:-warning} \
+                      --proxyComponentLogLevel=${GATEWAY_COMPONENT_LOG_LEVEL:-misc:error} \
+                      --serviceCluster=higress-gateway
             - run: write the rootless higress console start script
               write: /opt/agentteams-higress/start-console.sh
               mode: "0755"
               content: |
-                #!/bin/bash
-                # start-console.sh — charly-owned rootless Higress console
-                # launcher. Waits for the apiserver + controller, marks the
-                # console as used, then execs the extracted higress-console.jar
-                # on Java. No sudo: the volume dir is uid-1000-owned.
-                set -e
+                  #!/bin/bash
+                  # start-console.sh — charly-owned rootless Higress console
+                  # launcher. Waits for the apiserver + controller, marks the
+                  # console as used, then execs the extracted higress-console.jar
+                  # on Java. No sudo: the volume dir is uid-1000-owned.
+                  set -e
 
-                while ! nc -z 127.0.0.1 18443; do
-                    echo "Checking the readiness of Higress API Server..."
-                    sleep 1
-                done
-                while ! nc -z 127.0.0.1 15051; do
-                    echo "Checking the readiness of Higress Controller..."
-                    sleep 1
-                done
+                  while ! nc -z 127.0.0.1 18443; do
+                      echo "Checking the readiness of Higress API Server..."
+                      sleep 1
+                  done
+                  while ! nc -z 127.0.0.1 15051; do
+                      echo "Checking the readiness of Higress Controller..."
+                      sleep 1
+                  done
 
-                touch "${HOME}/.agentteams/higress/.console-used"
+                  touch "${HOME}/.agentteams/higress/.console-used"
 
-                export HIGRESS_CONSOLE_KUBE_CONFIG="/app/kubeconfig"
-                export HIGRESS_CONSOLE_SERVICE_HOST="higress-console.static"
-                export HIGRESS_CONSOLE_SERVICE_PORT=80
-                export SERVER_PORT="${CONSOLE_PORT:-8001}"
+                  export HIGRESS_CONSOLE_KUBE_CONFIG="/app/kubeconfig"
+                  export HIGRESS_CONSOLE_SERVICE_HOST="higress-console.static"
+                  export HIGRESS_CONSOLE_SERVICE_PORT=80
+                  export SERVER_PORT="${CONSOLE_PORT:-8001}"
 
-                exec java -jar /app/higress-console.jar
+                  exec java -jar /app/higress-console.jar
             - check: the higress apiserver binary is extracted
               file:
                 file: /usr/local/bin/apiserver
@@ -449,12 +451,12 @@ agentteams-higress:
               context:
                 - runtime
               command: |
-                for i in $(seq 1 28); do
-                    code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)"
-                    [ "${code}" = "200" ] && exit 0
-                    sleep 2
-                done
-                exit 1
+                  for i in $(seq 1 28); do
+                      code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)"
+                      [ "${code}" = "200" ] && exit 0
+                      sleep 2
+                  done
+                  exit 1
             - check: the higress console answers on its port
               timeout: 60s
               context:
